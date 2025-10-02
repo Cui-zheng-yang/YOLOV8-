@@ -1,0 +1,430 @@
+# 安装指南
+
+本文档提供详细的安装步骤和环境配置说明。
+
+## 📋 系统要求
+
+### 最低配置
+
+- **操作系统**: Windows 10+, macOS 10.14+, Ubuntu 18.04+
+- **CPU**: 4核心以上
+- **内存**: 8GB RAM
+- **存储**: 5GB 可用空间
+- **Python**: 3.8, 3.9, 3.10, 3.11
+
+### 推荐配置
+
+- **CPU**: 8核心以上
+- **内存**: 16GB RAM
+- **GPU**: NVIDIA GPU with CUDA support (可选，用于加速)
+- **存储**: 10GB+ SSD
+
+## 🔧 环境准备
+
+### 1. 安装Python
+
+#### Windows
+
+1. 访问 [Python官网](https://www.python.org/downloads/)
+2. 下载Python 3.8+安装包
+3. 运行安装程序，**勾选"Add Python to PATH"**
+4. 验证安装：
+```cmd
+python --version
+pip --version
+```
+
+#### macOS
+
+使用Homebrew安装：
+```bash
+# 安装Homebrew（如果还没有）
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 安装Python
+brew install python@3.10
+
+# 验证
+python3 --version
+pip3 --version
+```
+
+#### Linux (Ubuntu/Debian)
+
+```bash
+sudo apt update
+sudo apt install python3 python3-pip python3-venv
+python3 --version
+pip3 --version
+```
+
+### 2. 安装Git (可选)
+
+#### Windows
+下载并安装 [Git for Windows](https://git-scm.com/download/win)
+
+#### macOS
+```bash
+brew install git
+```
+
+#### Linux
+```bash
+sudo apt install git
+```
+
+## 📥 项目安装
+
+### 方法一：使用启动脚本（推荐）
+
+#### Linux/macOS
+
+```bash
+# 1. 下载项目（或解压项目文件）
+cd fall-detection-system
+
+# 2. 给脚本添加执行权限
+chmod +x start.sh
+
+# 3. 运行启动脚本
+./start.sh
+```
+
+#### Windows
+
+```cmd
+REM 1. 打开命令提示符
+cd fall-detection-system
+
+REM 2. 运行启动脚本
+start.bat
+```
+
+### 方法二：手动安装
+
+#### 步骤1: 创建项目目录结构
+
+```bash
+# 创建主目录
+mkdir fall-detection-system
+cd fall-detection-system
+
+# 创建子目录
+mkdir -p backend/models/weights
+mkdir -p backend/utils
+mkdir -p backend/api
+mkdir -p backend/logs
+mkdir -p frontend/src/api
+mkdir -p frontend/src/utils
+mkdir -p frontend/src/assets/styles
+```
+
+#### 步骤2: 复制代码文件
+
+将所有提供的代码文件复制到对应目录：
+
+**后端文件**:
+- `backend/app.py`
+- `backend/config.py`
+- `backend/requirements.txt`
+- `backend/models/yolo_detector.py`
+- `backend/models/fall_detector.py`
+- `backend/models/__init__.py`
+- `backend/utils/image_processor.py`
+- `backend/utils/logger.py`
+- `backend/utils/__init__.py`
+- `backend/api/detection.py`
+- `backend/api/health.py`
+- `backend/api/__init__.py`
+
+**前端文件**:
+- `frontend/index.html`
+- `frontend/src/assets/styles/main.css`
+
+#### 步骤3: 安装后端依赖
+
+```bash
+# 进入后端目录
+cd backend
+
+# 创建虚拟环境
+python -m venv venv
+
+# 激活虚拟环境
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+# 升级pip
+pip install --upgrade pip
+
+# 安装依赖
+pip install -r requirements.txt
+```
+
+如果安装PyTorch遇到问题，可以访问 [PyTorch官网](https://pytorch.org/get-started/locally/) 选择合适的版本。
+
+#### 步骤4: 下载YOLOv8模型
+
+模型会在首次运行时自动下载，也可以手动下载：
+
+```bash
+cd backend/models/weights
+
+# 使用Python下载
+python -c "from ultralytics import YOLO; YOLO('yolov8n-pose.pt')"
+
+# 或使用wget下载
+wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt
+```
+
+#### 步骤5: 配置环境变量（可选）
+
+创建 `backend/.env` 文件：
+
+```env
+FLASK_ENV=development
+DEBUG=True
+HOST=0.0.0.0
+PORT=5000
+MODEL_CONFIDENCE=0.5
+FALL_THRESHOLD=0.6
+LOG_LEVEL=INFO
+```
+
+#### 步骤6: 启动服务
+
+**启动后端**:
+```bash
+cd backend
+python app.py
+```
+
+**启动前端** (新终端):
+```bash
+cd frontend
+python -m http.server 8080
+```
+
+## 🎯 验证安装
+
+### 1. 检查后端服务
+
+打开浏览器访问: `http://localhost:5000/api/health`
+
+应该看到：
+```json
+{
+  "status": "ok",
+  "timestamp": "2025-10-02T10:30:45",
+  "uptime": 3.5,
+  "model": "yolov8n-pose",
+  "version": "1.0.0"
+}
+```
+
+### 2. 检查前端界面
+
+访问: `http://localhost:8080`
+
+应该看到系统主界面。
+
+### 3. 测试检测功能
+
+1. 点击"图片检测"
+2. 上传一张包含人体的图片
+3. 点击"开始检测"
+4. 查看检测结果
+
+## 🐛 故障排除
+
+### 问题1: Python版本不兼容
+
+**错误信息**: `SyntaxError` 或版本警告
+
+**解决方案**:
+```bash
+# 检查Python版本
+python --version
+
+# 如果版本 < 3.8，请升级Python
+```
+
+### 问题2: pip安装失败
+
+**错误信息**: `Could not find a version that satisfies the requirement`
+
+**解决方案**:
+```bash
+# 升级pip
+pip install --upgrade pip
+
+# 使用国内镜像（如果在中国）
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+### 问题3: PyTorch安装失败
+
+**解决方案**:
+
+根据系统选择合适的命令：
+
+**CPU版本**:
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+```
+
+**CUDA 11.8**:
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+```
+
+### 问题4: OpenCV导入错误
+
+**错误信息**: `ImportError: libGL.so.1`
+
+**解决方案** (Linux):
+```bash
+sudo apt install libgl1-mesa-glx
+```
+
+### 问题5: 模型下载失败
+
+**解决方案**:
+
+手动下载模型文件并放到 `backend/models/weights/` 目录：
+- 从 [Ultralytics发布页](https://github.com/ultralytics/assets/releases) 下载 `yolov8n-pose.pt`
+
+### 问题6: 端口被占用
+
+**错误信息**: `Address already in use`
+
+**解决方案**:
+
+修改端口：
+```bash
+# 后端
+python app.py  # 在config.py中修改PORT
+
+# 前端
+python -m http.server 8888  # 使用其他端口
+```
+
+或杀死占用端口的进程：
+```bash
+# Linux/macOS
+lsof -ti:5000 | xargs kill -9
+lsof -ti:8080 | xargs kill -9
+
+# Windows
+netstat -ano | findstr :5000
+taskkill /PID <PID> /F
+```
+
+### 问题7: CORS错误
+
+**解决方案**:
+
+确保前端和后端的地址匹配，在 `frontend/index.html` 中：
+```javascript
+const API_BASE_URL = 'http://localhost:5000/api';
+```
+
+### 问题8: 摄像头无法访问
+
+**解决方案**:
+- 使用 `localhost` 或 HTTPS 访问前端
+- 检查浏览器权限设置
+- 确保没有其他程序占用摄像头
+
+## 💡 性能优化
+
+### 1. 使用GPU加速
+
+如果有NVIDIA GPU：
+
+```bash
+# 安装CUDA版PyTorch
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+# 验证GPU可用
+python -c "import torch; print(torch.cuda.is_available())"
+```
+
+### 2. 使用生产服务器
+
+```bash
+# 安装Gunicorn
+pip install gunicorn
+
+# 启动
+gunicorn -w 4 -b 0.0.0.0:5000 app:app
+```
+
+### 3. 调整配置
+
+编辑 `backend/config.py`:
+```python
+# 降低图像分辨率
+MAX_IMAGE_SIZE = (1280, 720)
+
+# 调整JPEG质量
+JPEG_QUALITY = 75
+
+# 减少历史帧数
+HISTORY_LENGTH = 3
+```
+
+## 📦 打包部署
+
+### 创建可执行文件（可选）
+
+使用PyInstaller打包：
+
+```bash
+pip install pyinstaller
+
+cd backend
+pyinstaller --onefile app.py
+```
+
+### Docker部署（高级）
+
+创建 `Dockerfile`:
+
+```dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+COPY backend/ /app/
+RUN pip install -r requirements.txt
+
+CMD ["python", "app.py"]
+```
+
+构建和运行：
+```bash
+docker build -t fall-detection .
+docker run -p 5000:5000 fall-detection
+```
+
+## 🆘 获取帮助
+
+如果遇到其他问题：
+
+1. 查看日志文件: `backend/logs/app.log`
+2. 检查浏览器控制台错误
+3. 提交Issue并附带：
+   - 操作系统和版本
+   - Python版本
+   - 完整错误信息
+   - 日志文件
+
+## ✅ 下一步
+
+安装成功后，请阅读 [README.md](README.md) 了解系统使用方法。
+
+---
+
+**安装成功后，尽情使用吧！🎉**
