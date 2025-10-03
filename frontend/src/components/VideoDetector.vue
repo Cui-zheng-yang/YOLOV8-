@@ -1,16 +1,15 @@
 <template>
   <div class="video-detector">
-    <!-- 检测区域 -->
     <div class="detection-area">
       <!-- 摄像头预览区 -->
       <div class="preview-box">
         <h3><i class="fas fa-camera"></i> 摄像头画面</h3>
-        <div v-if="!isStreaming" class="camera-placeholder">
+        <div v-if="!isStreaming" class="camera-placeholder" @click="startVideo">
           <i class="fas fa-video"></i>
           <p>点击下方按钮启动摄像头</p>
           <small>需要授权访问摄像头</small>
         </div>
-        <div v-else class="video-container">
+        <div v-else class="video-wrapper">
           <video 
             ref="videoElement" 
             autoplay 
@@ -18,9 +17,11 @@
             muted
           ></video>
           <canvas ref="canvasElement" style="display: none;"></canvas>
-          <div class="video-status">
-            <span class="status-indicator active"></span>
-            正在监测中
+          <div class="video-overlay">
+            <div class="video-status">
+              <span class="status-indicator"></span>
+              正在监测中
+            </div>
           </div>
         </div>
       </div>
@@ -32,11 +33,11 @@
           <i class="fas fa-image"></i>
           <p>{{ isStreaming ? '等待检测结果...' : '启动视频后显示检测结果' }}</p>
         </div>
-        <div v-else class="result-container">
+        <div v-else class="result-wrapper">
           <img :src="resultFrame" alt="检测结果" />
-          <div class="fps-counter">
+          <div class="fps-badge">
             <i class="fas fa-tachometer-alt"></i>
-            FPS: {{ fps.toFixed(1) }}
+            {{ fps.toFixed(1) }} FPS
           </div>
         </div>
       </div>
@@ -48,9 +49,10 @@
         v-if="!isStreaming"
         class="btn btn-primary"
         @click="startVideo"
+        :disabled="isStarting"
       >
-        <i class="fas fa-play"></i>
-        启动检测
+        <i :class="isStarting ? 'fas fa-spinner fa-spin' : 'fas fa-play'"></i>
+        {{ isStarting ? '正在启动...' : '启动检测' }}
       </button>
       <button 
         v-else
@@ -71,16 +73,19 @@
       </div>
     </div>
 
-    <!-- 提示信息 -->
+    <!-- 错误提示 -->
     <div v-if="error" class="error-message">
       <i class="fas fa-exclamation-circle"></i>
-      {{ error }}
+      <div>
+        <strong>错误：</strong>
+        <p>{{ error }}</p>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue'
+import { ref, onUnmounted, nextTick } from 'vue'
 import { detectVideoFrame } from '@/api/detection'
 import { canvasToBase64 } from '@/utils/fileHelper'
 
@@ -89,9 +94,10 @@ const emit = defineEmits(['detection-complete'])
 const videoElement = ref(null)
 const canvasElement = ref(null)
 const isStreaming = ref(false)
+const isStarting = ref(false)
 const resultFrame = ref(null)
 const error = ref(null)
-const detectionInterval = ref(500) // 默认500ms
+const detectionInterval = ref(500)
 const fps = ref(0)
 
 let mediaStream = null
@@ -99,110 +105,201 @@ let detectionTimer = null
 let fpsTimer = null
 let frameCount = 0
 
-// 启动视频
 const startVideo = async () => {
+  if (isStarting.value || isStreaming.value) return
+  
   error.value = null
+  isStarting.value = true
+  isStreaming.value = true // 先设置 isStreaming 为 true 以渲染 video 元素
   
   try {
-    // 请求摄像头权限
-    mediaStream = await navigator.mediaDevices.getUserMedia({
+    await nextTick() // 等待 DOM 更新，确保 video 元素已渲染
+    
+    console.log('🎥 开始启动摄像头...')
+    
+    // 1. 检查浏览器支持
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('浏览器不支持摄像头访问，请使用 Chrome、Firefox 或 Edge')
+    }
+    
+    console.log('✅ 浏览器支持摄像头API')
+    
+    // 2. 请求摄像头权限和视频流
+    const constraints = {
       video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        width: { ideal: 1280, max: 1920 },
+        height: { ideal: 720, max: 1080 },
         facingMode: 'user'
       },
       audio: false
+    }
+    
+    console.log('📹 请求摄像头...', constraints)
+    mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+    console.log('✅ 摄像头流获取成功')
+    
+    // 3. 检查视频轨道
+    const videoTracks = mediaStream.getVideoTracks()
+    if (videoTracks.length === 0) {
+      throw new Error('未找到视频轨道')
+    }
+    
+    console.log('📹 视频轨道信息:', {
+      label: videoTracks[0].label,
+      enabled: videoTracks[0].enabled,
+      readyState: videoTracks[0].readyState
     })
     
-    // 设置视频流
-    if (videoElement.value) {
-      videoElement.value.srcObject = mediaStream
-      isStreaming.value = true
-      
-      // 等待视频加载
-      await new Promise((resolve) => {
-        videoElement.value.onloadedmetadata = resolve
-      })
-      
-      // 开始检测
-      startDetection()
-      
-      // 开始FPS计算
-      startFpsCounter()
+    // 4. 设置视频元素的流
+    if (!videoElement.value) {
+      throw new Error('视频元素未找到')
     }
+    
+    videoElement.value.srcObject = mediaStream
+    console.log('✅ 视频流已设置到video元素')
+    
+    // 5. 等待视频元数据加载
+    await new Promise((resolve, reject) => {
+      const video = videoElement.value
+      const timeout = setTimeout(() => {
+        reject(new Error('视频加载超时（10秒）'))
+      }, 10000)
+      
+      video.onloadedmetadata = () => {
+        clearTimeout(timeout)
+        console.log('✅ 视频元数据加载完成')
+        console.log('📺 视频尺寸:', video.videoWidth, 'x', video.videoHeight)
+        resolve()
+      }
+      
+      video.onerror = (e) => {
+        clearTimeout(timeout)
+        console.error('❌ 视频元素错误:', e)
+        reject(new Error('视频元素加载失败'))
+      }
+    })
+    
+    // 6. 确保视频播放
+    try {
+      await videoElement.value.play()
+      console.log('✅ 视频播放成功')
+    } catch (playErr) {
+      console.warn('⚠️ 自动播放失败，但流已设置:', playErr.message)
+    }
+    
+    // 7. 最终检查
+    if (videoElement.value.videoWidth === 0 || videoElement.value.videoHeight === 0) {
+      throw new Error('视频尺寸为0，可能未正确加载')
+    }
+    
+    // 8. 标记为成功
+    isStarting.value = false
+    
+    console.log('🎉 摄像头启动完全成功！')
+    console.log('📊 最终状态:', {
+      videoWidth: videoElement.value.videoWidth,
+      videoHeight: videoElement.value.videoHeight,
+      paused: videoElement.value.paused,
+      readyState: videoElement.value.readyState
+    })
+    
+    // 9. 启动检测和FPS计数
+    await new Promise(resolve => setTimeout(resolve, 500))
+    startDetection()
+    startFpsCounter()
+    
   } catch (err) {
-    console.error('摄像头启动失败:', err)
+    console.error('❌ 摄像头启动失败:', err)
+    isStarting.value = false
+    isStreaming.value = false
     
-    if (err.name === 'NotAllowedError') {
-      error.value = '摄像头权限被拒绝，请在浏览器设置中允许访问摄像头'
-    } else if (err.name === 'NotFoundError') {
-      error.value = '未检测到摄像头设备'
-    } else {
-      error.value = '摄像头启动失败：' + err.message
+    // 清理资源
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop())
+      mediaStream = null
+    }
+    if (videoElement.value) {
+      videoElement.value.srcObject = null
     }
     
-    isStreaming.value = false
+    // 设置友好的错误消息
+    if (err.name === 'NotAllowedError') {
+      error.value = '摄像头权限被拒绝。请点击地址栏的 🔒 图标，允许访问摄像头后刷新页面。'
+    } else if (err.name === 'NotFoundError') {
+      error.value = '未检测到摄像头设备。请确保摄像头已正确连接并且驱动已安装。'
+    } else if (err.name === 'NotReadableError') {
+      error.value = '摄像头被其他程序占用。请关闭 Zoom、Teams、Skype 等程序后重试。'
+    } else if (err.name === 'OverconstrainedError') {
+      error.value = '摄像头不支持请求的配置。请尝试使用其他摄像头或降低分辨率。'
+    } else {
+      error.value = `摄像头启动失败：${err.message}`
+    }
   }
 }
 
-// 停止视频
 const stopVideo = () => {
-  // 停止检测
+  console.log('🛑 停止摄像头')
+  
   if (detectionTimer) {
     clearInterval(detectionTimer)
     detectionTimer = null
   }
   
-  // 停止FPS计数
   if (fpsTimer) {
     clearInterval(fpsTimer)
     fpsTimer = null
   }
   
-  // 停止媒体流
   if (mediaStream) {
-    mediaStream.getTracks().forEach(track => track.stop())
+    mediaStream.getTracks().forEach(track => {
+      track.stop()
+      console.log('✅ 停止轨道:', track.kind, track.label)
+    })
     mediaStream = null
   }
   
-  // 清空视频元素
   if (videoElement.value) {
     videoElement.value.srcObject = null
+    videoElement.value.load()
   }
   
   isStreaming.value = false
   resultFrame.value = null
   fps.value = 0
   frameCount = 0
+  error.value = null
 }
 
-// 开始检测
 const startDetection = () => {
+  console.log(`⏱️ 启动检测定时器，间隔: ${detectionInterval.value}ms`)
+  
   detectionTimer = setInterval(async () => {
     await captureAndDetect()
   }, detectionInterval.value)
 }
 
-// 捕获并检测
 const captureAndDetect = async () => {
   const video = videoElement.value
   const canvas = canvasElement.value
   
-  if (!video || !canvas || !isStreaming.value) return
+  if (!video || !canvas || !isStreaming.value) {
+    return
+  }
+  
+  if (video.readyState < 2 || video.videoWidth === 0) {
+    console.warn('⚠️ 视频尚未准备好，跳过本帧')
+    return
+  }
   
   try {
-    // 设置canvas尺寸
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     
-    // 绘制当前帧
     const ctx = canvas.getContext('2d')
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     
-    // 转换为Base64
     const frameData = canvasToBase64(canvas, 'image/jpeg', 0.8)
     
-    // 发送到后端检测
     const response = await detectVideoFrame(frameData)
     
     if (response.success) {
@@ -211,12 +308,10 @@ const captureAndDetect = async () => {
       frameCount++
     }
   } catch (err) {
-    console.error('检测失败:', err)
-    // 不中断检测，继续下一帧
+    console.error('❌ 帧检测失败:', err.message)
   }
 }
 
-// FPS计数器
 const startFpsCounter = () => {
   let lastCount = 0
   
@@ -226,7 +321,6 @@ const startFpsCounter = () => {
   }, 1000)
 }
 
-// 组件卸载时清理
 onUnmounted(() => {
   stopVideo()
 })
@@ -275,6 +369,12 @@ onUnmounted(() => {
   background: white;
   border-radius: 10px;
   color: #999;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.camera-placeholder:hover {
+  background: #f0f0f0;
 }
 
 .camera-placeholder i {
@@ -292,21 +392,38 @@ onUnmounted(() => {
   color: #bbb;
 }
 
-.video-container, .result-container {
+.video-wrapper, .result-wrapper {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   position: relative;
   background: #000;
   border-radius: 10px;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.video-container video, .result-container img {
-  max-width: 100%;
-  max-height: 450px;
-  border-radius: 8px;
+.video-wrapper video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.result-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.video-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
 }
 
 .video-status {
@@ -327,10 +444,6 @@ onUnmounted(() => {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #ff0000;
-}
-
-.status-indicator.active {
   background: #00ff00;
   animation: blink 1.5s infinite;
 }
@@ -340,7 +453,7 @@ onUnmounted(() => {
   50% { opacity: 0.3; }
 }
 
-.fps-counter {
+.fps-badge {
   position: absolute;
   top: 15px;
   right: 15px;
@@ -352,7 +465,7 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.fps-counter i {
+.fps-badge i {
   margin-right: 5px;
 }
 
@@ -363,6 +476,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   color: #999;
+  background: white;
+  border-radius: 10px;
 }
 
 .empty-state i {
@@ -406,9 +521,15 @@ onUnmounted(() => {
   color: white;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   transform: translateY(-3px);
   box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .settings {
@@ -447,12 +568,29 @@ onUnmounted(() => {
   border-radius: 10px;
   color: #856404;
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 12px;
+  line-height: 1.6;
 }
 
 .error-message i {
-  font-size: 1.3em;
+  font-size: 1.5em;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.error-message strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.fa-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 @media (max-width: 968px) {
