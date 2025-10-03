@@ -198,7 +198,6 @@ const clearHistory = () => {
   color: #667eea;
 }
 
-/* 列表过渡动画 */
 .list-enter-active {
   transition: all 0.4s ease;
 }

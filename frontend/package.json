@@ -1,0 +1,19 @@
+{
+  "name": "fall-detection-frontend",
+  "version": "1.0.0",
+  "description": "YOLOv8行人跌倒检测系统 - 前端",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.3.4",
+    "axios": "^1.6.0",
+    "pinia": "^2.1.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.4.0",
+    "vite": "^5.0.0"
+  }
+}
