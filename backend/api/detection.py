@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 import logging
+import numpy as np  # 导入numpy用于类型判断
 
 from models.yolo_detector import YOLODetector
 from models.fall_detector import FallDetector
@@ -20,6 +21,21 @@ def init_detectors(yolo_det, fall_det):
     global yolo_detector, fall_detector
     yolo_detector = yolo_det
     fall_detector = fall_det
+
+def convert_numpy_types(obj):
+    """递归将numpy类型转换为Python原生类型"""
+    if isinstance(obj, (np.float32, np.float64, np.floating)):
+        return float(obj)
+    elif isinstance(obj, (np.int32, np.int64, np.integer)):
+        return int(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()  # 将numpy数组转换为Python列表
+    elif isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    else:
+        return obj  # 其他类型保持不变
 
 @detection_bp.route('/detect_image', methods=['POST'])
 def detect_image():
@@ -85,12 +101,14 @@ def detect_image():
             
             fall_results.append({
                 'id': detection['id'],
-                'bbox': detection['bbox'],
+                # 将bbox的numpy数组转为Python列表并确保元素为float
+                'bbox': [float(coord) for coord in detection['bbox']],
                 'is_fall': is_fall,
                 'fall_score': float(fall_score),
-                'confidence': detection['confidence'],
-                'details': {k: float(v) if isinstance(v, (int, float)) else v 
-                           for k, v in details.items()}
+                # 转换置信度为Python float
+                'confidence': float(detection['confidence']),
+                # 递归处理details中的numpy类型
+                'details': convert_numpy_types(details)
             })
         
         # 绘制检测结果
@@ -122,7 +140,8 @@ def detect_image():
         
         logger.info(f"检测完成 - 跌倒: {fall_detected}, 人数: {len(detections)}")
         
-        return jsonify(response)
+        # 对响应进行类型转换后再序列化
+        return jsonify(convert_numpy_types(response))
         
     except Exception as e:
         logger.error(f"图片检测失败: {str(e)}", exc_info=True)
@@ -192,7 +211,8 @@ def detect_video():
                 'id': detection['id'],
                 'is_fall': is_fall,
                 'fall_score': float(fall_score),
-                'confidence': detection['confidence']
+                # 转换置信度为Python float
+                'confidence': float(detection['confidence'])
             })
         
         # 绘制检测结果
@@ -219,7 +239,8 @@ def detect_video():
             'timestamp': datetime.now().isoformat()
         }
         
-        return jsonify(response)
+        # 对响应进行类型转换后再序列化
+        return jsonify(convert_numpy_types(response))
         
     except Exception as e:
         logger.error(f"视频帧检测失败: {str(e)}", exc_info=True)
@@ -260,10 +281,11 @@ def reset_detector():
 def get_config():
     """获取检测器配置"""
     try:
-        config = {
+        # 处理配置中的numpy类型
+        config = convert_numpy_types({
             'yolo': yolo_detector.get_model_info(),
             'fall_detector': fall_detector.get_config()
-        }
+        })
         
         return jsonify({
             'success': True,
