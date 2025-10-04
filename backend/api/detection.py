@@ -1,7 +1,10 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 import logging
-import numpy as np  # 导入numpy用于类型判断
+import numpy as np
+import os
+import cv2
+from pathlib import Path
 
 from models.yolo_detector import YOLODetector
 from models.fall_detector import FallDetector
@@ -15,6 +18,12 @@ detection_bp = Blueprint('detection', __name__)
 # 全局检测器实例（在app.py中初始化）
 yolo_detector = None
 fall_detector = None
+
+# 新增：跌倒图片保存路径
+FALL_IMAGES_DIR = "fall_training_data"
+Path(FALL_IMAGES_DIR).mkdir(parents=True, exist_ok=True)
+Path(os.path.join(FALL_IMAGES_DIR, "unlabeled")).mkdir(parents=True, exist_ok=True)
+Path(os.path.join(FALL_IMAGES_DIR, "labeled")).mkdir(parents=True, exist_ok=True)
 
 def init_detectors(yolo_det, fall_det):
     """初始化检测器"""
@@ -36,6 +45,26 @@ def convert_numpy_types(obj):
         return [convert_numpy_types(item) for item in obj]
     else:
         return obj  # 其他类型保持不变
+
+# 新增：保存跌倒图片
+def save_fall_image(image, detection_id, details):
+    """保存检测到跌倒的图片用于后续训练"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    filename = f"fall_{detection_id}_{timestamp}.jpg"
+    filepath = os.path.join(FALL_IMAGES_DIR, "unlabeled", filename)
+    
+    # 保存原始图片
+    cv2.imwrite(filepath, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+    
+    # 保存标注信息
+    label_filename = f"fall_{detection_id}_{timestamp}.txt"
+    label_filepath = os.path.join(FALL_IMAGES_DIR, "unlabeled", label_filename)
+    with open(label_filepath, "w") as f:
+        f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+        f.write(f"Details: {str(details)}\n")
+    
+    logger.info(f"已保存跌倒图片: {filepath}")
+    return filepath
 
 @detection_bp.route('/detect_image', methods=['POST'])
 def detect_image():
@@ -77,6 +106,7 @@ def detect_image():
             }), 400
         
         # 调整图像大小
+        original_image = image.copy()  # 新增：保存原始图像用于可能的跌倒图片保存
         image = ImageProcessor.resize_image(image)
         
         # YOLO检测
@@ -88,6 +118,7 @@ def detect_image():
         fall_results = []
         is_fall_list = []
         fall_scores = []
+        fall_details = []  # 新增：保存跌倒详情
         
         for detection in detections:
             keypoints = detection['keypoints_array']
@@ -95,6 +126,10 @@ def detect_image():
             
             if is_fall:
                 fall_detected = True
+                fall_details.append({
+                    'id': detection['id'],
+                    'details': details
+                })
             
             is_fall_list.append(is_fall)
             fall_scores.append(fall_score)
@@ -110,6 +145,10 @@ def detect_image():
                 # 递归处理details中的numpy类型
                 'details': convert_numpy_types(details)
             })
+        
+        # 新增：如果检测到跌倒，保存图片
+        if fall_detected:
+            save_fall_image(original_image, id(original_image), fall_details)
         
         # 绘制检测结果
         result_image = yolo_detector.draw_detections(
@@ -182,6 +221,7 @@ def detect_video():
         
         # 解码图像
         frame = ImageProcessor.base64_to_image(frame_data)
+        original_frame = frame.copy()  # 新增：保存原始帧用于可能的跌倒图片保存
         if frame is None:
             return jsonify({
                 'success': False,
@@ -196,6 +236,7 @@ def detect_video():
         fall_results = []
         is_fall_list = []
         fall_scores = []
+        fall_details = []  # 新增：保存跌倒详情
         
         for detection in detections:
             keypoints = detection['keypoints_array']
@@ -203,6 +244,10 @@ def detect_video():
             
             if is_fall:
                 fall_detected = True
+                fall_details.append({
+                    'id': detection['id'],
+                    'details': details
+                })
             
             is_fall_list.append(is_fall)
             fall_scores.append(fall_score)
@@ -214,6 +259,10 @@ def detect_video():
                 # 转换置信度为Python float
                 'confidence': float(detection['confidence'])
             })
+        
+        # 新增：如果检测到跌倒，保存帧图像
+        if fall_detected:
+            save_fall_image(original_frame, id(original_frame), fall_details)
         
         # 绘制检测结果
         result_frame = yolo_detector.draw_detections(
@@ -247,6 +296,72 @@ def detect_video():
         return jsonify({
             'success': False,
             'error': f'服务器错误: {str(e)}'
+        }), 500
+
+# 新增：标记跌倒图片为已标注
+@detection_bp.route('/label_fall_image', methods=['POST'])
+def label_fall_image():
+    """标记跌倒图片为已标注状态"""
+    try:
+        data = request.get_json()
+        if not data or 'filename' not in data:
+            return jsonify({
+                'success': False,
+                'error': '缺少文件名'
+            }), 400
+        
+        filename = data['filename']
+        src_path = os.path.join(FALL_IMAGES_DIR, "unlabeled", filename)
+        dest_path = os.path.join(FALL_IMAGES_DIR, "labeled", filename)
+        
+        # 移动图片文件
+        if os.path.exists(src_path):
+            os.rename(src_path, dest_path)
+            
+            # 移动对应的标签文件
+            txt_filename = os.path.splitext(filename)[0] + ".txt"
+            src_txt = os.path.join(FALL_IMAGES_DIR, "unlabeled", txt_filename)
+            dest_txt = os.path.join(FALL_IMAGES_DIR, "labeled", txt_filename)
+            if os.path.exists(src_txt):
+                os.rename(src_txt, dest_txt)
+                
+            return jsonify({
+                'success': True,
+                'message': f'图片 {filename} 已标记为已标注'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'图片 {filename} 不存在'
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"标记图片失败: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+# 新增：获取所有未标注的跌倒图片
+@detection_bp.route('/get_unlabeled_falls', methods=['GET'])
+def get_unlabeled_falls():
+    """获取所有未标注的跌倒图片列表"""
+    try:
+        unlabeled_dir = os.path.join(FALL_IMAGES_DIR, "unlabeled")
+        images = [f for f in os.listdir(unlabeled_dir) 
+                 if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        
+        return jsonify({
+            'success': True,
+            'count': len(images),
+            'images': images
+        })
+        
+    except Exception as e:
+        logger.error(f"获取未标注图片失败: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
         }), 500
 
 @detection_bp.route('/reset', methods=['POST'])

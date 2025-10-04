@@ -1,0 +1,2 @@
+Timestamp: 2025-10-04T20:18:15.479322
+Details: [{'id': 1, 'details': {'body_angle': 55.81517172748019, 'angle_score': 0.15, 'height_ratio': 0.44543488906537426, 'height_score': 0.15, 'posture_score': 0.15, 'body_ratio': 0.861164318887822, 'body_ratio_score': 0.2, 'total_score': 0.6499999999999999, 'motion_score': 0.0, 'combined_score': 0.4549999999999999, 'avg_score': 0.6499999999999999, 'history_length': 2}}]
