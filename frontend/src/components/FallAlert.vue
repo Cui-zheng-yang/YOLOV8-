@@ -1,4 +1,5 @@
 <template>
+  <!-- 仅当store.showFallAlert为true（检测到跌倒）时才渲染整个弹窗 -->
   <div v-if="store.showFallAlert" class="fall-alert-backdrop">
     <!-- 核心弹窗容器 -->
     <div class="fall-alert-container" :class="{ 'expanded': showSmsEditor }">
@@ -109,7 +110,6 @@
 
     <!-- 全屏通话界面 -->
     <div v-if="isInCall" class="fullscreen-call">
-      <!-- 通话界面内容不变 -->
       <div class="call-status-bar">
         <span class="signal-icon">📶</span>
         <span class="time">{{ currentTime }}</span>
@@ -122,9 +122,37 @@
         <div class="contact-info">
           <h3 class="contact-name">{{ currentCallName }}</h3>
           <p class="contact-number">{{ currentCallNumber }}</p>
-          <p class="call-status">正在呼叫中...</p>
+          <p class="call-status">{{ callStatusText }}</p>
         </div>
         <div class="call-timer">{{ callDuration }}</div>
+        
+        <!-- 拨号键盘 -->
+        <div v-if="showKeypad" class="dialpad-container">
+          <div class="dialpad">
+            <div class="dialpad-row">
+              <button class="dialpad-btn" @click="addDialNumber('1')">1</button>
+              <button class="dialpad-btn" @click="addDialNumber('2')">2<br>ABC</button>
+              <button class="dialpad-btn" @click="addDialNumber('3')">3<br>DEF</button>
+            </div>
+            <div class="dialpad-row">
+              <button class="dialpad-btn" @click="addDialNumber('4')">4<br>GHI</button>
+              <button class="dialpad-btn" @click="addDialNumber('5')">5<br>JKL</button>
+              <button class="dialpad-btn" @click="addDialNumber('6')">6<br>MNO</button>
+            </div>
+            <div class="dialpad-row">
+              <button class="dialpad-btn" @click="addDialNumber('7')">7<br>PQRS</button>
+              <button class="dialpad-btn" @click="addDialNumber('8')">8<br>TUV</button>
+              <button class="dialpad-btn" @click="addDialNumber('9')">9<br>WXYZ</button>
+            </div>
+            <div class="dialpad-row">
+              <button class="dialpad-btn" @click="addDialNumber('*')">*</button>
+              <button class="dialpad-btn" @click="addDialNumber('0')">0<br>+</button>
+              <button class="dialpad-btn" @click="deleteDialNumber()">
+                <i class="fas fa-backspace"></i>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="call-actions">
         <button class="action-btn speaker-btn" @click="toggleSpeaker">
@@ -153,18 +181,18 @@ import { useDetectionStore } from '../stores/detection'
 import EmergencyContacts from './EmergencyContacts.vue'
 import { makeEmergencyCall, sendEmergencySms } from '../api/emergency'
 
-// 状态管理
+// 状态管理：完全依赖store的showFallAlert状态（检测到跌倒时设为true）
 const store = useDetectionStore()
 const contactsComponentRef = ref(null)
 
-// 新增：短信编辑相关状态
-const showSmsEditor = ref(false) // 控制编辑界面显示/隐藏
-const smsRecipientPhone = ref('') // 接收人电话
-const smsRecipientName = ref('') // 接收人姓名
-const smsContent = ref('') // 短信内容
+// 短信编辑相关状态
+const showSmsEditor = ref(false)
+const smsRecipientPhone = ref('')
+const smsRecipientName = ref('')
+const smsContent = ref('')
 const defaultSmsTemplate = ref('【紧急通知】检测到行人跌倒，位置：{latitude},{longitude}，请尽快处理！')
 
-// 原有状态
+// 核心状态
 const showSettings = ref(false)
 const isInCall = ref(false)
 const currentCallNumber = ref('')
@@ -188,9 +216,13 @@ const showToast = ref(false)
 const toastMessage = ref('')
 const toastType = ref('info')
 
-// 取消按钮处理
+// 呼叫状态文本
+const callStatusText = ref('正在呼叫中...')
+let callStatusTimer = null
+
+// 取消按钮：隐藏弹窗（将store状态设为false，下次检测到跌倒才重新显示）
 const handleCancel = () => {
-  store.showFallAlert = false
+  store.showFallAlert = false // 关键：通过store关闭弹窗
   if (store.setShowFallAlert) store.setShowFallAlert(false)
   if (isInCall.value) endCall()
 }
@@ -234,13 +266,13 @@ const handleCallClick = () => {
   nextTick(() => makeEmergencyCallHandler())
 }
 
-// 发送短信按钮点击（改为显示编辑界面）
+// 发送短信按钮点击
 const handleSmsClick = () => {
   console.log('发送短信按钮被点击，显示编辑界面')
   nextTick(() => prepareSmsEditor())
 }
 
-// 新增：准备短信编辑界面
+// 准备短信编辑界面
 const prepareSmsEditor = async () => {
   if (!contactsComponentRef.value) {
     showToastMessage('系统错误：无法获取联系人组件', 'error')
@@ -272,16 +304,14 @@ const prepareSmsEditor = async () => {
   const targetContact = contactsList[0]
   smsRecipientPhone.value = targetContact.phone
   smsRecipientName.value = targetContact.name
-  // 替换模板中的位置信息
   smsContent.value = defaultSmsTemplate.value
     .replace('{latitude}', latitude.value)
     .replace('{longitude}', longitude.value)
 
-  // 显示编辑界面
   showSmsEditor.value = true
 }
 
-// 新增：确认发送短信
+// 确认发送短信
 const handleConfirmSend = async () => {
   if (!smsContent.value.trim()) {
     showToastMessage('短信内容不能为空', 'error')
@@ -296,18 +326,17 @@ const handleConfirmSend = async () => {
       smsRecipientPhone.value,
       latitude.value,
       longitude.value,
-      smsContent.value // 传递编辑后的内容
+      smsContent.value
     )
 
     if (response.success) {
       showToastMessage(`已向 ${smsRecipientName.value} 发送紧急短信`, 'success')
-      showSmsEditor.value = false // 隐藏编辑界面
+      showSmsEditor.value = false
     } else {
       throw new Error(response.error || '发送失败')
     }
   } catch (error) {
     console.error('短信发送失败:', error.message)
-    // 备用方案：尝试系统短信
     try {
       const smsUrl = `sms:${smsRecipientPhone.value}?body=${encodeURIComponent(smsContent.value)}`
       window.location.href = smsUrl
@@ -334,7 +363,21 @@ const toggleSpeaker = () => {
 }
 
 const toggleKeypad = () => {
-  showKeypad.value = !showKeypad.value
+  showKeypad.value = !showKeypad.value;
+  if (showKeypad.value) {
+    showToastMessage('已显示拨号键盘', 'info');
+  }
+}
+
+// 拨号键盘功能
+const addDialNumber = (number) => {
+  currentCallNumber.value += number;
+}
+
+const deleteDialNumber = () => {
+  if (currentCallNumber.value.length > 0) {
+    currentCallNumber.value = currentCallNumber.value.slice(0, -1);
+  }
 }
 
 const startCallTimer = () => {
@@ -350,14 +393,17 @@ const startCallTimer = () => {
 
 const endCall = () => {
   isInCall.value = false
-  if (callTimer) clearInterval(callTimer)
-  callStartTime.value = null
-  currentCallNumber.value = ''
-  currentCallName.value = ''
-  isProcessing.value = false
-  actionType.value = ''
-  showToastMessage('通话已结束', 'info')
-}
+  if (callTimer) clearInterval(callTimer);
+  callStartTime.value = null;
+  currentCallNumber.value = '';
+  currentCallName.value = '';
+  isProcessing.value = false;
+  actionType.value = '';
+  showKeypad.value = false;
+  if (callStatusTimer) clearTimeout(callStatusTimer);
+  callStatusText.value = '通话已结束';
+  showToastMessage('通话已结束', 'info');
+};
 
 // 紧急呼叫处理
 const makeEmergencyCallHandler = async () => {
@@ -393,7 +439,13 @@ const makeEmergencyCallHandler = async () => {
     currentCallNumber.value = targetContact.phone
     currentCallName.value = targetContact.name
     isInCall.value = true
-    startCallTimer()
+    callStatusText.value = '正在呼叫中...';
+    startCallTimer();
+
+    // 3秒后切换为通话中
+    callStatusTimer = setTimeout(() => {
+      callStatusText.value = '通话中';
+    }, 3000);
 
     const response = await makeEmergencyCall(
       targetContact.phone,
@@ -404,20 +456,22 @@ const makeEmergencyCallHandler = async () => {
     if (!response.success) throw new Error(response.error || '呼叫失败')
   } catch (error) {
     console.error('呼叫API失败:', error.message)
+    if (callStatusTimer) clearTimeout(callStatusTimer);
     try {
       const telUrl = `tel:${targetContact.phone}`
       window.location.href = telUrl
     } catch (telError) {
       showToastMessage(`呼叫失败：${telError.message}`, 'error')
-      endCall()
+      endCall();
     }
   }
-}
+};
 
-// 初始化
+// 初始化：仅做基础准备，不强制显示弹窗
 onMounted(() => {
-  getLocation()
+  getLocation() // 提前获取位置（避免弹窗时延迟）
   
+  // 更新当前时间
   const updateCurrentTime = () => {
     const now = new Date()
     currentTime.value = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
@@ -425,6 +479,7 @@ onMounted(() => {
   updateCurrentTime()
   setInterval(updateCurrentTime, 60000)
 
+  // 检查联系人组件加载状态（仅日志，不影响显示）
   const checkContactsComponent = () => {
     if (contactsComponentRef.value) {
       console.log('联系人组件加载成功')
@@ -434,23 +489,20 @@ onMounted(() => {
   }
   checkContactsComponent()
 
-  if (typeof store.showFallAlert === 'undefined') {
-    store.showFallAlert = true
-  }
+  // 【关键删除】移除初始强制设置store.showFallAlert = true的逻辑
+  // 弹窗显示完全由跌倒检测逻辑（store.showFallAlert = true）触发
 })
 </script>
 
 <style scoped>
-/* 原有样式基础上新增以下样式 */
-
-/* 弹窗扩展样式（编辑界面显示时） */
+/* 弹窗扩展样式 */
 .fall-alert-container {
   transition: max-height 0.3s ease;
-  max-height: 600px; /* 默认高度 */
+  max-height: 600px;
 }
 
 .fall-alert-container.expanded {
-  max-height: 800px; /* 编辑界面显示时的高度 */
+  max-height: 800px;
 }
 
 /* 短信编辑界面样式 */
@@ -485,10 +537,6 @@ onMounted(() => {
   margin-bottom: 15px;
   color: #666;
   font-size: 14px;
-}
-
-.sms-content {
-  margin-bottom: 15px;
 }
 
 .sms-content textarea {
@@ -566,7 +614,55 @@ onMounted(() => {
   gap: 5px;
 }
 
-/* 其他原有样式保持不变 */
+/* 拨号键盘样式 */
+.dialpad-container {
+  position: absolute;
+  bottom: 180px;
+  left: 0;
+  right: 0;
+  padding: 0 20px;
+  animation: slideUp 0.3s ease;
+}
+
+.dialpad {
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+.dialpad-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.dialpad-btn {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.dialpad-btn:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
+}
+
+.dialpad-btn span, .dialpad-btn br {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 基础样式 */
 .fall-alert-backdrop {
   position: fixed;
   top: 0;
@@ -695,7 +791,7 @@ onMounted(() => {
 .toast.error { background: #e74c3c; }
 .toast.warning { background: #f39c12; }
 
-/* 通话界面样式保持不变 */
+/* 通话界面样式 */
 .fullscreen-call {
   position: fixed;
   top: 0;
@@ -710,201 +806,6 @@ onMounted(() => {
   z-index: 2000;
 }
 
-.fall-alert-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-
-.fall-alert-container {
-  background: white;
-  border-radius: 12px;
-  width: 90%;
-  max-width: 500px;
-  padding: 20px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-}
-
-/* 头部样式（保留原有） */
-.alert-header {
-  text-align: center;
-  margin-bottom: 20px;
-}
-
-.alert-header h2 {
-  color: #e74c3c;
-  margin: 0 0 10px 0;
-  font-size: 22px;
-}
-
-.alert-header p {
-  color: #666;
-  margin: 0;
-  font-size: 14px;
-}
-
-.fall-alert-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-
-.fall-alert-container {
-  background: white;
-  border-radius: 12px;
-  width: 90%;
-  max-width: 500px;
-  padding: 20px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-}
-
-/* 头部样式（保留原有） */
-.alert-header {
-  text-align: center;
-  margin-bottom: 20px;
-}
-
-.alert-header h2 {
-  color: #e74c3c;
-  margin: 0 0 10px 0;
-  font-size: 22px;
-}
-
-.alert-header p {
-  color: #666;
-  margin: 0;
-  font-size: 14px;
-}
-
-/* 位置信息样式 */
-.location-info {
-  background: #f8f9fa;
-  padding: 15px;
-  border-radius: 8px;
-  margin-bottom: 20px;
-}
-
-.location-info p {
-  margin: 5px 0;
-  color: #333;
-  font-size: 14px;
-}
-
-/* 按钮样式 */
-.action-buttons {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.action-buttons button {
-  flex: 1;
-  padding: 12px;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  transition: opacity 0.2s;
-}
-
-.call-btn {
-  background: #2ecc71;
-  color: white;
-}
-
-.sms-btn {
-  background: #3498db;
-  color: white;
-}
-
-.cancel-btn {
-  background: #e74c3c;
-  color: white;
-}
-
-button:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-/* 联系人区域样式 */
-.contacts-section {
-  margin-top: 20px;
-  border-top: 1px solid #eee;
-  padding-top: 15px;
-}
-
-.settings-toggle {
-  width: 100%;
-  background: #f1f5f9;
-  border: none;
-  padding: 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 14px;
-  color: #333;
-}
-
-.contacts-form {
-  margin-top: 15px;
-  animation: slideDown 0.3s ease;
-}
-
-/* 提示消息样式 */
-.toast {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 10px 20px;
-  border-radius: 4px;
-  color: white;
-  font-size: 14px;
-  z-index: 3000;
-}
-
-.toast.info { background: #3498db; }
-.toast.success { background: #2ecc71; }
-.toast.error { background: #e74c3c; }
-.toast.warning { background: #f39c12; }
-
-/* 全屏通话界面样式（美化后） */
-.fullscreen-call {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(180deg, #1a237e 0%, #121212 100%);
-  color: white;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  z-index: 2000;
-}
-
-/* 通话顶部状态条 */
 .call-status-bar {
   height: 44px;
   padding: 0 16px;
@@ -915,7 +816,6 @@ button:disabled {
   opacity: 0.9;
 }
 
-/* 通话主体内容 */
 .call-content {
   flex: 1;
   display: flex;
@@ -926,7 +826,6 @@ button:disabled {
   position: relative;
 }
 
-/* 联系人头像 */
 .contact-avatar {
   width: 160px;
   height: 160px;
@@ -967,7 +866,6 @@ button:disabled {
   100% { transform: scale(1); opacity: 0; }
 }
 
-/* 联系人信息 */
 .contact-info {
   text-align: center;
   margin-bottom: 40px;
@@ -1011,7 +909,6 @@ button:disabled {
   50% { opacity: 0.4; }
 }
 
-/* 通话时长 */
 .call-timer {
   font-size: 42px;
   font-weight: 300;
@@ -1021,7 +918,6 @@ button:disabled {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
-/* 通话操作区 */
 .call-actions {
   display: flex;
   justify-content: space-around;
@@ -1029,6 +925,10 @@ button:disabled {
   padding: 20px 10px;
   background-color: rgba(18, 18, 18, 0.6);
   backdrop-filter: blur(10px);
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
 }
 
 .action-btn {
@@ -1079,11 +979,23 @@ button:disabled {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @media (max-width: 375px) {
   .contact-avatar { width: 140px; height: 140px; }
   .contact-name { font-size: 24px; }
   .call-timer { font-size: 36px; }
   .action-btn { width: 56px; height: 56px; }
   .end-call-btn { width: 64px; height: 64px; }
+  .dialpad-btn { width: 50px; height: 50px; }
+  .dialpad-container { bottom: 150px; }
+}
+
+button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 </style>
