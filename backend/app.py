@@ -2,6 +2,7 @@ from flask import Flask
 from flask_cors import CORS
 import os
 import sys
+from api.emergency import emergency_bp
 from pathlib import Path
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:8080"}})  # 允许前端域名
@@ -86,6 +87,8 @@ def create_app(config_name=None):
         raise
     
     # 注册蓝图
+    # 在注册蓝图部分添加
+    app.register_blueprint(emergency_bp, url_prefix=f"{config.API_PREFIX}")
     app.register_blueprint(detection_bp, url_prefix=f"{config.API_PREFIX}")
     app.register_blueprint(health_bp, url_prefix=f"{config.API_PREFIX}")
     logger.info("✓ API路由注册成功")

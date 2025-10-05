@@ -37,7 +37,14 @@ class Config:
     LOG_FILE = BASE_DIR / 'logs' / 'app.log'
     LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB
     LOG_BACKUP_COUNT = 5
-    
+      
+    # 紧急服务配置
+    EMERGENCY_SERVICE_ENABLED = True  # 启用紧急服务模拟
+    EMERGENCY_CONTACTS = [
+        {'name': '紧急联系人1', 'phone': '120'},
+        {'name': '紧急联系人2', 'phone': '110'}
+    ]
+    EMERGENCY_MESSAGE_TEMPLATE = "【紧急通知】检测到行人跌倒，请立即处理！位置：{latitude}°N, {longitude}°E"
     # API配置
     API_PREFIX = '/api'
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB
