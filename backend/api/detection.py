@@ -68,23 +68,6 @@ def save_fall_image(image, detection_id, details):
 
 @detection_bp.route('/detect_image', methods=['POST'])
 def detect_image():
-    """
-    图片检测接口
-    
-    请求体:
-        {
-            "image": "data:image/jpeg;base64,..."
-        }
-    
-    响应:
-        {
-            "success": true,
-            "fall_detected": false,
-            "detections": [...],
-            "result_image": "data:image/jpeg;base64,...",
-            "timestamp": "2025-10-01T10:30:45.123456"
-        }
-    """
     try:
         # 获取请求数据
         data = request.get_json()
@@ -95,55 +78,56 @@ def detect_image():
             }), 400
         
         image_data = data.get('image', '')
-        logger.info("收到图片检测请求")
         
         # 解码图像
         image = ImageProcessor.base64_to_image(image_data)
+        original_image = image.copy()  # 保存原始图像用于可能的跌倒图片保存
         if image is None:
             return jsonify({
                 'success': False,
                 'error': '图像解码失败'
             }), 400
         
-        # 调整图像大小
-        original_image = image.copy()  # 新增：保存原始图像用于可能的跌倒图片保存
-        image = ImageProcessor.resize_image(image)
-        
         # YOLO检测
         detections = yolo_detector.detect(image)
-        logger.info(f"YOLO检测到 {len(detections)} 个人体")
+        logger.info(f"YOLO检测到 {len(detections)} 个目标")
         
-        # 跌倒检测
+        # 跌倒检测 - 修改为使用基于类别的判断
         fall_detected = False
         fall_results = []
         is_fall_list = []
         fall_scores = []
-        fall_details = []  # 新增：保存跌倒详情
+        fall_details = []
         
-        for detection in detections:
-            keypoints = detection['keypoints_array']
-            is_fall, fall_score, details = fall_detector.detect(keypoints, detection['id'])
+        # 使用基于类别的跌倒判断
+        is_fall_list, fall_scores = yolo_detector.judge_fall(detections)
+        
+        # 构建跌倒结果
+        for i, detection in enumerate(detections):
+            is_fall = is_fall_list[i]
+            fall_score = fall_scores[i]
             
             if is_fall:
                 fall_detected = True
                 fall_details.append({
                     'id': detection['id'],
-                    'details': details
+                    'details': {
+                        'confidence': detection['confidence'],
+                        'class_name': detection['class_name'],
+                        'fall_judgment_basis': '基于目标检测类别'
+                    }
                 })
-            
-            is_fall_list.append(is_fall)
-            fall_scores.append(fall_score)
             
             fall_results.append({
                 'id': detection['id'],
-                # 将bbox的numpy数组转为Python列表并确保元素为float
                 'bbox': [float(coord) for coord in detection['bbox']],
                 'is_fall': is_fall,
                 'fall_score': float(fall_score),
-                # 转换置信度为Python float
                 'confidence': float(detection['confidence']),
-                # 递归处理details中的numpy类型
-                'details': convert_numpy_types(details)
+                'class_name': detection['class_name'],
+                'details': {
+                    'fall_judgment_basis': '基于目标检测类别'
+                }
             })
         
         # 新增：如果检测到跌倒，保存图片
@@ -231,33 +215,38 @@ def detect_video():
         # YOLO检测
         detections = yolo_detector.detect(frame)
         
-        # 跌倒检测
+        # 跌倒检测 - 修改为使用基于类别的判断
         fall_detected = False
         fall_results = []
         is_fall_list = []
         fall_scores = []
         fall_details = []  # 新增：保存跌倒详情
         
-        for detection in detections:
-            keypoints = detection['keypoints_array']
-            is_fall, fall_score, details = fall_detector.detect(keypoints, detection['id'])
+        # 使用基于类别的跌倒判断
+        is_fall_list, fall_scores = yolo_detector.judge_fall(detections)
+        
+        # 构建跌倒结果
+        for i, detection in enumerate(detections):
+            is_fall = is_fall_list[i]
+            fall_score = fall_scores[i]
             
             if is_fall:
                 fall_detected = True
                 fall_details.append({
                     'id': detection['id'],
-                    'details': details
+                    'details': {
+                        'confidence': detection['confidence'],
+                        'class_name': detection['class_name'],
+                        'fall_judgment_basis': '基于目标检测类别'
+                    }
                 })
-            
-            is_fall_list.append(is_fall)
-            fall_scores.append(fall_score)
             
             fall_results.append({
                 'id': detection['id'],
                 'is_fall': is_fall,
                 'fall_score': float(fall_score),
-                # 转换置信度为Python float
-                'confidence': float(detection['confidence'])
+                'confidence': float(detection['confidence']),
+                'class_name': detection['class_name']
             })
         
         # 新增：如果检测到跌倒，保存帧图像
