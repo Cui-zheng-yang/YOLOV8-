@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class YOLODetector:
     """YOLOv8姿态检测器"""
     
-    def __init__(self, model_path: str, confidence: float = 0.5):
+    def __init__(self, model_path: str = 'YOLOV8-/backend/models/weights/best.pt', confidence: float = 0.5):
         """
         初始化YOLO检测器
         
@@ -17,6 +17,8 @@ class YOLODetector:
             model_path: 模型文件路径
             confidence: 置信度阈值
         """
+        if model_path is None:
+            model_path = 'YOLOV8-/backend/models/weights/best.pt'
         self.model_path = model_path
         self.confidence = confidence
         self.model = None

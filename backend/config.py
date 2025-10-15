@@ -16,8 +16,8 @@ class Config:
     CORS_ORIGINS = os.getenv('CORS_ORIGINS', '*')
     
     # 模型配置
-    MODEL_NAME = 'yolov8n-pose.pt'
-    MODEL_PATH = BASE_DIR / 'models' / 'weights' / MODEL_NAME
+    MODEL_NAME = 'YOLOV8-/backend/models/weights/best.pt'
+    MODEL_PATH = 'YOLOV8-/backend/models/weights/best.pt'
     MODEL_CONFIDENCE = float(os.getenv('MODEL_CONFIDENCE', 0.5))
     
     # 跌倒检测配置

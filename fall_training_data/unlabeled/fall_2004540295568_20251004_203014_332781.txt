@@ -1,2 +1,0 @@
-Timestamp: 2025-10-04T20:30:14.358977
-Details: [{'id': 0, 'details': {'error': 'Low confidence keypoints', 'motion_score': 1.0, 'combined_score': 0.3, 'avg_score': 0.6799999999999999, 'history_length': 5}}]

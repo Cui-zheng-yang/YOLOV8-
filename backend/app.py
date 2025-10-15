@@ -67,6 +67,7 @@ def create_app(config_name=None):
             confidence=config.MODEL_CONFIDENCE
         )
         logger.info(f"✓ YOLO模型加载成功: {config.MODEL_NAME}")
+        logger.info(f"✓ 模型配置: {yolo_detector.get_model_info()}")
         
         # 初始化跌倒检测器
         fall_detector = FallDetector(
