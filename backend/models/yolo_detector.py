@@ -1,6 +1,8 @@
 from ultralytics import YOLO
 import numpy as np
 import cv2
+import os
+from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 import logging
 
@@ -179,6 +181,88 @@ class YOLODetector:
             'loaded': self.model is not None,
             'type': 'object_detection'  # 标记为目标检测类型
         }
+
+    def detect_video(self, video_path: str, save: bool = True, save_dir: str = "output") -> Dict:
+        """
+        检测本地视频文件
+        
+        Args:
+            video_path: 视频文件路径
+            save: 是否保存检测结果
+            save_dir: 结果保存目录
+            
+        Returns:
+            视频检测结果统计信息
+        """
+        if self.model is None:
+            raise RuntimeError("模型未加载")
+        
+        try:
+            logger.info(f"开始检测视频: {video_path}")
+            
+            # 创建保存目录
+            if save:
+                Path(save_dir).mkdir(parents=True, exist_ok=True)
+            
+            # 使用YOLO模型直接处理视频
+            results = self.model.predict(
+                source=video_path,
+                save=save,
+                project=save_dir,
+                name="video_detection",
+                exist_ok=True
+            )
+            
+            # 统计检测结果
+            total_frames = 0
+            total_detections = 0
+            fall_detections = 0
+            detection_summary = []
+            
+            for result in results:
+                total_frames += 1
+                
+                # 解析检测结果
+                detections = self._parse_results([result])
+                total_detections += len(detections)
+                
+                # 判断跌倒
+                is_fall_list, fall_scores = self.judge_fall(detections)
+                frame_fall_count = sum(is_fall_list)
+                fall_detections += frame_fall_count
+                
+                # 记录帧检测结果
+                detection_summary.append({
+                    'frame': total_frames,
+                    'detection_count': len(detections),
+                    'fall_count': frame_fall_count,
+                    'detections': detections,
+                    'is_fall_list': is_fall_list,
+                    'fall_scores': fall_scores
+                })
+            
+            # 构建响应
+            video_result = {
+                'video_path': video_path,
+                'total_frames': total_frames,
+                'total_detections': total_detections,
+                'fall_detections': fall_detections,
+                'detection_summary': detection_summary,
+                'output_path': os.path.join(save_dir, "video_detection") if save else None,
+                'success': True
+            }
+            
+            logger.info(f"视频检测完成 - 总帧数: {total_frames}, 检测目标: {total_detections}, 跌倒检测: {fall_detections}")
+            
+            return video_result
+            
+        except Exception as e:
+            logger.error(f"视频检测失败: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'video_path': video_path
+            }
 
 # 使用示例
 if __name__ == "__main__":

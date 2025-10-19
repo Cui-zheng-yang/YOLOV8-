@@ -90,4 +90,29 @@ export const getConfig = () => {
   return request.get('/config')
 }
 
+/**
+ * 本地视频文件检测
+ * @param {File} videoFile - 视频文件对象
+ * @param {boolean} saveResults - 是否保存检测结果
+ * @param {string} outputDir - 输出目录
+ */
+export const detectLocalVideo = (videoFile, saveResults = true, outputDir = "output") => {
+  const formData = new FormData()
+  formData.append('video_file', videoFile)
+  formData.append('save_results', saveResults)
+  formData.append('output_dir', outputDir)
+  return request.post('/detect_local_video', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    },
+    timeout: 300000 // 增加超时时间以适应视频处理
+  })
+}
+/**
+ * 获取视频检测结果列表
+ */
+export const getVideoResults = () => {
+  return request.get('/get_video_results')
+}
+
 export default request
